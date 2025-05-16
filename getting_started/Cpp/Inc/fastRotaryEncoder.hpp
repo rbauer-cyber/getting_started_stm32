@@ -2,7 +2,7 @@
 #define FastRotaryEncoder_h
 
 #include <stdint.h>
-#include <digitalOut.hpp>
+#include "digitalOut.hpp"
 
 using CallbackFunc = void(*)();
 

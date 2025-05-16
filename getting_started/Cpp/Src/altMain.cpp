@@ -4,19 +4,20 @@
  *  Created on: Apr 5, 2025
  *      Author: rbauer
  */
-#define USE_QUANTUM
+//#define USE_QUANTUM
+#define USE_POLLING
 //#define USE_TIMER_INTERRUPT
 //#define USE_UART_TX_INTERRUPT
-#define USE_UART_TX_DATA
+//#define USE_UART_TX_DATA
 //#define USE_UART_RX_INTERRUPT
 //#define USE_UART_RX_BLOCK
-//#define USE_UART_RX
+#define USE_UART_RX
 //#define USE_UART_DMA
-//#define USE_POLLING
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <cstring>
 
 #include "main.h"
 #include "tim.h"
@@ -31,6 +32,10 @@
 
 volatile bool s_isSent = false;
 volatile bool s_isReceived = false;
+
+extern CMultiLed g_multiLed;
+
+#define ARRAY_SIZE(a) (sizeof(a)/sizeof(a[0]))
 
 #ifndef USE_QUANTUM
 #ifdef USE_UART_TX_DATA
@@ -126,23 +131,114 @@ void appSysTickHandler()
 }
 #endif
 
-static uint8_t s_pins[] =
+void appSysTickHandler()
 {
-		kDigitalPin08, // PA9
-		kDigitalPin09, // PC7
-		kDigitalPin10, // PB6
-		kDigitalPin11, // PA7
-		kDigitalPin12, // PA6
-};
-
-static uint8_t s_numPins = sizeof(s_pins) / sizeof(s_pins[0]);
-
-CMultiLed g_multiLed( s_pins, s_numPins );
+}
 
 #if 0
 void FastRotaryEncoderChanged()
 {
 	CFastRotaryEncoder::FastRotaryChangedCallback();
+}
+#endif
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+//HAL_UART_Receive_IT(&huart2, UART1_rxBuffer, 12);
+#if 0
+_void HAL_UART_AbortReceiveCpltCallback(UART_HandleTypeDef *huart)
+{
+  /* Prevent unused argument(s) compilation warning */
+  UNUSED(huart);
+
+  /* NOTE : This function should not be modified, when the callback is needed,
+            the HAL_UART_AbortReceiveCpltCallback can be implemented in the user file.
+   */
+	s_inputReady = 1;
+}
+#endif
+
+//HAL_StatusTypeDef HAL_UART_AbortReceive_IT(UART_HandleTypeDef *huart);
+#ifdef USE_UART_RX_INTERRUPT
+uint8_t s_rxKeyBuf[2] = {0};
+uint8_t s_rxBuffer[20] = {0};
+uint8_t s_rxBufferSize = ARRAY_SIZE(s_rxBuffer);
+uint8_t s_rxIndex = 0;
+uint8_t s_inputReady = 0;
+uint8_t s_inputDone = 0;
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	s_inputReady = 1;
+}
+
+void copyString(char cbuf[], uint8_t ubuf[], uint8_t maxSize)
+{
+	uint8_t index = 0;
+
+	while ( index < maxSize && ubuf[index] )
+	{
+		cbuf[index] = static_cast<char>(ubuf[index]);
+		index += 1;
+	}
+
+	cbuf[index++] = '\r';
+	cbuf[index++] = '\n';
+	cbuf[index++] = 0;
+}
+
+//
+// Receive one byte at a time using the HAL UART receive complete ISR.
+// The routine inserts the received byte into the output string.
+// maxsize indicates the total number of elements in the output buffer.
+//
+void receiveInputString( char outBuf[], size_t maxSize )
+{
+	std::memset(s_rxBuffer, 0, sizeof s_rxBuffer);
+	s_inputDone = 0;
+	s_rxIndex = 0;
+
+	// Note (maxSize-4) preserves space for terminating the string with 3 extra characters,
+	// CRLF and null. The routine copyString appends those characters onto the output buffer.
+	while ( !s_inputDone && s_rxIndex < (maxSize-4) )
+	{
+		s_inputReady = 0;
+		s_rxKeyBuf[0] = 0;
+
+		// Receive one character at time until the input is terminated either
+		// by receiving a carriage return or by receiving the maximum number of characters
+		// allowed in the output array. The terminating character is not inserted into
+		// the output when it is received. However, the CRLF characters and a null byte are
+		// appended to the the array so space is preserved for those characters in the output buffer.
+		// Each bye is received asynchronously through the ISR.
+		HAL_UART_Receive_IT( &huart2, s_rxKeyBuf, 1 );
+
+		// The UART ISR sets s_inputReady after a character is received.
+		while ( !s_inputReady )
+		{
+			HAL_Delay(100);
+		}
+
+		// Carriage return explicitly terminates the input.
+		if ( s_rxKeyBuf[0] == '\r' )
+		{
+			s_inputDone = 1;
+		}
+		else
+		{
+			s_rxBuffer[s_rxIndex++] = s_rxKeyBuf[0];
+		}
+	}
+
+	copyString(outBuf, s_rxBuffer, s_rxIndex);
+}
+
+#endif
+
+#ifdef __cplusplus
 }
 #endif
 
@@ -155,11 +251,12 @@ void altMain()
 	char outBuf[80];
 	//int pin4 = 0;
 	//int pin5 = 0;
+	int button = 0;
 	int position = 0;
 	//FastRotaryEncoder.Setup();
 	//FastRotaryEncoder.SetPosition(800);
 #elif defined(USE_UART_RX)
-	char outBuf[80];
+	char inBuf[15];
 #endif
 
 	while ( 1 )
@@ -177,6 +274,8 @@ void altMain()
 	        //consoleDisplayArgs("INPUT:: D4=%d D5=%d\r\n", pin4, pin5);
 			//position = FastRotaryEncoder.GetPosition();
 	        //consoleDisplayArgs("Encoder:: position=%d\r\n", position);
+			button = CDigitalOut::Read(kDigitalPin16);
+	        consoleDisplayArgs("Switch:: button=%d\r\n", button);
 		}
 
 		// selecting MAX_LEDS index causes builtin LED to toggle
@@ -213,14 +312,12 @@ void altMain()
 		HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 		HAL_Delay(1000);
 #elif defined(USE_UART_RX_INTERRUPT)
-		if ( g_uartDataSent )
-		{
-			HAL_UART_Receive(&huart2, s_rxData, 5, HAL_MAX_DELAY);
-			g_uartDataSent = 0;
-		}
-
+		consoleDisplay("Enter a string: ");
+		receiveInputString(inBuf, ARRAY_SIZE(inBuf));
+		//HAL_UART_Receive(&huart2, s_rxData, 5, HAL_MAX_DELAY);
 		HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-		HAL_Delay(1000);
+		consoleDisplay(inBuf);
+		HAL_Delay(500);
 #elif defined(USE_UART_RX_BLOCK)
 		HAL_UART_Transmit(&huart2, (const uint8_t*)prompt, strlen(prompt), 1000);
 		HAL_UART_Receive(&huart2, s_rxData, 5, HAL_MAX_DELAY);
