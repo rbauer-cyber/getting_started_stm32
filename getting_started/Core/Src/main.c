@@ -32,12 +32,12 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define USE_INTERRUPT
+#define USE_TIMR2
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -70,7 +70,75 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	//HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
 }
 #endif
+#ifdef USE_TIMR2
+// Use Timer 2 count register to measure elapsed time in micro-seconds
+// Timer 2 runs at 50 MHZ, clk tick rate is 20 nano-seconds.
+volatile uint32_t s_lastTimeNs = 0;
+volatile uint64_t s_elapsedTimeNs = 0;
+const uint32_t s_maxTimeNs = 4294967295;
 
+uint64_t getMicros()
+{
+	// TIM2 is running at 50 MHz, each tick is 20 nanos.
+	uint32_t currentTimeNs = (__HAL_TIM_GetCounter(&htim2) * 20);
+	uint32_t elapsedTimeNs;
+	uint64_t elapsedTimeUs;
+
+	// Detect timer overflow, max time value is 4294967295 (32 bit timer)
+	// and adjust the elapsed time for the overflow.
+	// The time overflows in 85 seconds.
+	if ( currentTimeNs > s_lastTimeNs )
+	{
+		elapsedTimeNs = currentTimeNs - s_lastTimeNs;
+	}
+	else
+	{
+		elapsedTimeNs = (s_maxTimeNs - s_lastTimeNs) + currentTimeNs + 1;
+	}
+
+	s_lastTimeNs = currentTimeNs;
+	s_elapsedTimeNs += elapsedTimeNs;
+	elapsedTimeUs = s_elapsedTimeNs / 1000;
+	return elapsedTimeUs;
+}
+
+//volatile uint32_t s_elapsedTimeUs = 0;
+//
+//uint32_t getMicros()
+//{
+//	// Resolution is 2 micro-secs using TIM2 at 50 MHz, counter period set 99, 2us
+//	return s_elapsedTimeUs;
+//}
+//
+//void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+//{
+//	/* Prevent unused argument(s) compilation warning */
+//	UNUSED(htim);
+//
+//	if ( htim == &htim2 )
+//	{
+//		//Timer 2 period is 2 micro-secs, 100 counts with auto-reload
+//		s_elapsedTimeUs += 2;
+//#if 0
+//		// Use this technique for Stepper acceleration control.
+//		if ( s_timerCount >= 10000 )
+//		{
+//			s_timerCount = 0;
+//			g_timerInterruptFlag = 1;
+//
+//			if ( ++s_timerChangeCount > 7 )
+//			{
+//				// The Frequency of the timer is 50 MHz.
+//				// Change the period of the timer pulses
+//				s_timerPeriod = (s_timerPeriod == 5000) ? 2500 : 5000;
+//				__HAL_TIM_SET_AUTORELOAD(&htim4, s_timerPeriod);
+//				s_timerChangeCount = 0;
+//			}
+//		}
+//#endif
+//	}
+//}
+#else
 uint16_t volatile s_timerCount = 0;
 uint16_t volatile s_timerChangeCount = 0;
 uint8_t  volatile g_timerInterruptFlag = 0;
@@ -108,6 +176,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
            the HAL_UART_TxCpltCallback could be implemented in the user file
    */
 }
+#endif
 
 /* USER CODE END 0 */
 
@@ -141,7 +210,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
-  MX_TIM4_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 	//const char notifySet[] = "STM32 setting LED\n\r";
 	//const char notifyReset[] = "STM32 resetting LED\n\r";
@@ -155,6 +224,8 @@ int main(void)
 	HAL_Delay(1000);
 	HAL_UART_Transmit(&huart2, (const uint8_t*)notifyStart, sizeof(notifyStart), 1000);
 	#endif
+  //HAL_TIM_Base_Start_IT(&htim2);
+  HAL_TIM_Base_Start(&htim2);
   /* USER CODE END 2 */
 
   /* Infinite loop */

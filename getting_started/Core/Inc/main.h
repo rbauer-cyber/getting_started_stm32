@@ -58,6 +58,7 @@ void altMain();
 void FastRotaryEncoderChanged();
 void appSysTickHandler();
 void Q_SysTick_Handler(void); // prototype
+uint64_t getMicros();
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

@@ -242,6 +242,76 @@ void receiveInputString( char outBuf[], size_t maxSize )
 }
 #endif
 
+void timer2DelayUs(uint32_t delayUs)
+{
+	uint64_t startTime = getMicros();
+	uint64_t endTime = startTime + (delayUs/2);
+	uint64_t currentTime = startTime;
+
+	while ( currentTime < endTime )
+	{
+		currentTime = getMicros();
+	}
+}
+
+uint32_t m_intervalStartTime;
+uint32_t m_intervalEndTime;
+uint32_t m_intervalElapsedTime;
+uint32_t m_intervalElapsedTimeDelta;
+uint32_t m_maxElapsedTimeDelta;
+uint32_t m_intervalCount;
+uint32_t m_minElapsedTimeDelta;
+uint32_t m_avgElapsedTimeDelta;
+uint32_t m_avgElapsedTime;
+
+void StartElapsedTime()
+{
+	m_intervalStartTime = getMicros();
+	m_intervalCount = 0;
+	m_avgElapsedTime = 0;
+}
+
+void UpdateElapsedTime()
+{
+    m_intervalEndTime = getMicros();
+    uint32_t elapsedTime = m_intervalEndTime - m_intervalStartTime;
+    uint32_t elapsedTimeDelta = 0;
+
+	if ( elapsedTime > m_intervalElapsedTime )
+		elapsedTimeDelta = elapsedTime - m_intervalElapsedTime;
+	else
+		elapsedTimeDelta = m_intervalElapsedTime - elapsedTime;
+
+	if ( elapsedTimeDelta > m_maxElapsedTimeDelta )
+	{
+		m_maxElapsedTimeDelta = elapsedTimeDelta;
+	}
+	if ( elapsedTimeDelta < m_minElapsedTimeDelta )
+	{
+		m_minElapsedTimeDelta = elapsedTimeDelta;
+	}
+
+	m_intervalCount += 1;
+	m_avgElapsedTimeDelta += elapsedTimeDelta;
+	m_avgElapsedTime += elapsedTime;
+	m_intervalElapsedTime = elapsedTime;
+}
+
+void DisplayElapsedTimeDelta()
+{
+	m_avgElapsedTimeDelta = m_avgElapsedTimeDelta / m_intervalCount;
+	m_avgElapsedTime = m_avgElapsedTime / m_intervalCount;
+
+	CONSOLE_DISPLAY_ARGS("max/min/avg/avg elapsed time delta us = %d/%d/%d/%d\r\n",
+		m_maxElapsedTimeDelta, m_minElapsedTimeDelta,
+		m_avgElapsedTimeDelta, m_avgElapsedTime);
+
+	m_avgElapsedTimeDelta = 0;
+	m_avgElapsedTime = 0;
+	m_intervalEndTime = getMicros();
+	m_intervalCount = 0;
+}
+
 void altMain()
 {
 #if defined(USE_POLLING) || defined(USE_TIMER_INTERRUPT)
@@ -264,18 +334,23 @@ void altMain()
 #if defined(USE_POLLING)
 		for ( size_t pinIndex = 0; pinIndex < g_multiLed.MaxPins(); pinIndex++ )
 		{
-			consoleDisplayArgs("Toggling LED %d\r\n", pinIndex);
+			//consoleDisplayArgs("Toggling LED %d\r\n", pinIndex);
+			StartElapsedTime();
 			g_multiLed.SetLed(pinIndex, 1);
-			HAL_Delay(1000);
+			//HAL_Delay(1000);
+			timer2DelayUs(1000000);
 			g_multiLed.SetLed(pinIndex, 0);
-			HAL_Delay(1000);
+			//HAL_Delay(1000);
+			timer2DelayUs(1000000);
 			//pin4 = CDigitalOut::Read(kDigitalPin04);
 			//pin5 = CDigitalOut::Read(kDigitalPin05);
 	        //consoleDisplayArgs("INPUT:: D4=%d D5=%d\r\n", pin4, pin5);
 			//position = FastRotaryEncoder.GetPosition();
 	        //consoleDisplayArgs("Encoder:: position=%d\r\n", position);
-			button = CDigitalOut::Read(kDigitalPin16);
-	        consoleDisplayArgs("Switch:: button=%d\r\n", button);
+			//button = CDigitalOut::Read(kDigitalPin16);
+	        //consoleDisplayArgs("Switch:: button=%d\r\n", button);
+			UpdateElapsedTime();
+			DisplayElapsedTimeDelta();
 		}
 
 		// selecting MAX_LEDS index causes builtin LED to toggle
